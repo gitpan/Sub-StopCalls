@@ -14,18 +14,19 @@ typedef struct {
     OP* ops[];
 } oplist;
 
-#define new_oplist(l) l = (oplist*) malloc(sizeof(U16)*2 + 16*sizeof(OP*)); \
+#define new_oplist(l) \
+    l = (oplist*) malloc(sizeof(U16)*2 + 16*sizeof(OP*)); \
     l->length = 0; l->max = 16;
 
 static void
-pushop(oplist* list, OP* op)
+pushop(oplist** list, OP* op)
 {
     if (!op) return;
-    if (list->length >= list->max) {
-        realloc(list, list->max*2);
-        list->max *= 2;
+    if ((*list)->length >= (*list)->max) {
+        (*list) = realloc((*list), sizeof(U16)*2 + sizeof(OP*)*(*list)->max*2);
+        (*list)->max *= 2;
     }
-    list->ops[ list->length++ ] = op;
+    (*list)->ops[ (*list)->length++ ] = op;
 }
 
 static int
@@ -74,7 +75,7 @@ find_entry(pTHX_ OP* start_at, OP* retop, OP** sibling, OP** parent )
 }
 
 static void
-_tree2oplist(pTHX_ oplist* dst, OP* start_at)
+_tree2oplist(pTHX_ oplist** dst, OP* start_at)
 {
     OP *o;
     pushop(dst, start_at);
@@ -90,13 +91,13 @@ tree2oplist(pTHX_ OP* start_at)
 {
     oplist *res;
     new_oplist(res);
-    _tree2oplist(aTHX_ res, start_at);
+    _tree2oplist(aTHX_ &res, start_at);
     return res;
 }
 
 
 static void
-_find_prev_ops(pTHX_ oplist* res, OP* start_at, oplist* into, OP* stop_at )
+_find_prev_ops(pTHX_ oplist** res, OP* start_at, oplist* into, OP* stop_at )
 {
     OP *o; U16 i;
 
@@ -122,7 +123,7 @@ find_prev_ops(pTHX_ OP* start_at, oplist* into, OP* stop_at )
     oplist *res;
 
     new_oplist(res);
-    _find_prev_ops(aTHX_ res, start_at, into, stop_at);
+    _find_prev_ops(aTHX_ &res, start_at, into, stop_at);
     if ( res->length ) return res;
 
     free(res);
@@ -141,16 +142,14 @@ caller_info(pTHX)
     call_info res;
     const PERL_CONTEXT *cx = res.cx = caller_cx(0, NULL);
     if (!cx) {
-        Perl_warner(aTHX_ packWARN(WARN_MISC),
-            "Couldn't find caller");
+        warn("Couldn't find caller");
         return res;
     }
     res.sibling = NULL;
     res.parent = NULL;
     res.enter = find_entry( aTHX_ (OP*)cx->blk_oldcop, RETOP, &res.sibling, &res.parent );
     if (!res.enter) {
-        Perl_warner(aTHX_ packWARN(WARN_MISC),
-            "Couldn't find sub entry");
+        warn("Couldn't find sub entry");
         res.cx = NULL;
         return res;
     }
@@ -159,8 +158,7 @@ caller_info(pTHX)
         aTHX_ (OP*)cx->blk_oldcop, res.targets, cx->blk_oldcop->op_sibling->op_sibling
     );
     if ( !res.prev ) {
-        Perl_warner(aTHX_ packWARN(WARN_MISC),
-            "Couldn't find prev ops");
+        warn( "Couldn't find prev ops" );
         res.cx = NULL;
         free(res.targets);
         return res;
